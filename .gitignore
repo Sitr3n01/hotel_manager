@@ -1,0 +1,114 @@
+# ============================================================================
+# Mestre D'Armas — root .gitignore
+# Public alpha policy: only product code, public docs and project configs are
+# tracked. Agent state, planning, dev artifacts and local tooling stay local.
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Node / npm
+# ----------------------------------------------------------------------------
+node_modules/
+.npm/
+.pnp
+.pnp.*
+.yarn/cache
+.yarn/install-state.gz
+*.tgz
+
+# ----------------------------------------------------------------------------
+# Next.js / build outputs
+# ----------------------------------------------------------------------------
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+hotel-fazenda-system/public/sw.js
+hotel-fazenda-system/public/sw.js.map
+hotel-fazenda-system/public/swe-worker-*.js
+hotel-fazenda-system/public/swe-worker-*.js.map
+hotel-fazenda-system/public/workbox-*.js
+hotel-fazenda-system/public/workbox-*.js.map
+
+# ----------------------------------------------------------------------------
+# Quality Gate runtime (baseline.json IS versioned; logs/reports are not)
+# ----------------------------------------------------------------------------
+reports/
+.quality-gate/logs/
+coverage/
+
+# ----------------------------------------------------------------------------
+# Secrets / environment — NEVER commit real values
+# `.env.example` files ARE committed (they're templates).
+# ----------------------------------------------------------------------------
+.env
+.env.local
+.env.development
+.env.development.local
+.env.production
+.env.production.local
+.env.test
+.env.test.local
+.env.*.local
+*.pem
+*.key
+*.crt
+.vercel
+
+# ----------------------------------------------------------------------------
+# Agent state and instructions (kept local, not shipped in the alpha)
+# Covers Claude Code, OpenAI Codex, Cursor, Gemini and similar assistants.
+# ----------------------------------------------------------------------------
+.claude/
+.claude-plugin/
+.agents/
+.agent/
+.cursor/
+.aider*
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+COPILOT.md
+.mcp.json
+skills-lock.json
+
+# ----------------------------------------------------------------------------
+# Internal planning, sprint reports, dev logs, archived templates
+# ----------------------------------------------------------------------------
+.dev/
+
+# ----------------------------------------------------------------------------
+# Editor configuration
+# ----------------------------------------------------------------------------
+.idea/
+.vscode/
+.zed/
+*.code-workspace
+
+# ----------------------------------------------------------------------------
+# Logs
+# ----------------------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ----------------------------------------------------------------------------
+# OS files
+# ----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ----------------------------------------------------------------------------
+# Test runtime
+# ----------------------------------------------------------------------------
+*.lcov
+.nyc_output/

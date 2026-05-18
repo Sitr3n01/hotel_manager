@@ -1,0 +1,413 @@
+// Hotel Fazenda — Prisma schema
+// See docs/DATABASE.md for the rationale, relationship map, and the
+// Supabase trigger that keeps UserProfile in sync with auth.users.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  GERENCIA
+  SECRETARIA
+  COZINHA
+  FINANCEIRO
+  UNASSIGNED
+}
+
+enum UserStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  BLOCKED
+  INACTIVE
+}
+
+enum RoomStatus {
+  AVAILABLE
+  RESERVED
+  OCCUPIED
+  MAINTENANCE
+  CLEANING
+  BLOCKED
+}
+
+enum ReservationStatus {
+  PRE_RESERVED
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+}
+
+enum Unit {
+  UNIT
+  KG
+  G
+  L
+  ML
+  PACKAGE
+  BOX
+}
+
+enum MovementType {
+  IN
+  RESERVATION_CONSUMPTION
+  INTERNAL_CONSUMPTION
+  WASTE
+  POSITIVE_ADJUSTMENT
+  NEGATIVE_ADJUSTMENT
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+  BANK_TRANSFER
+  OTHER
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+// Mirror of Supabase auth.users with domain-level fields.
+// authUserId is the bridge to auth.users.id (different schema, can't FK).
+// Populated by the on_auth_user_created trigger (see migrations).
+model UserProfile {
+  id              String      @id @default(uuid()) @db.Uuid
+  authUserId      String      @unique @db.Uuid
+  email           String      @unique
+  name            String
+  phone           String?
+  role            Role        @default(UNASSIGNED)
+  status          UserStatus  @default(PENDING)
+  isActive        Boolean     @default(false)
+  approvedAt      DateTime?
+  approvedById    String?     @db.Uuid
+  rejectedAt      DateTime?
+  rejectedById    String?     @db.Uuid
+  rejectionReason String?
+  requestedRole   Role?
+  requestMessage  String?
+  lastLoginAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  createdReservations Reservation[]            @relation("ReservationCreatedBy")
+  stockMovements      StockMovement[]
+  consumptions        ReservationConsumption[]
+  closings            FinancialClosing[]
+  auditLogs           AuditLog[]
+  syncedOperations    SyncedOperation[]
+  permissionTags      UserPermissionTag[]      @relation("UserPermissionTags")
+  approvedBy          UserProfile?             @relation("UserApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedUsers       UserProfile[]            @relation("UserApprovedBy")
+  rejectedBy          UserProfile?             @relation("UserRejectedBy", fields: [rejectedById], references: [id], onDelete: SetNull)
+  rejectedUsers       UserProfile[]            @relation("UserRejectedBy")
+  grantedTags         UserPermissionTag[]      @relation("PermissionGrantedBy")
+  revokedTags         UserPermissionTag[]      @relation("PermissionRevokedBy")
+
+  @@index([status, isActive])
+  @@index([role])
+  @@index([approvedById])
+  @@index([rejectedById])
+}
+
+model PermissionTag {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  name        String
+  description String?
+  category    String
+  isSystem    Boolean  @default(true)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users UserPermissionTag[]
+
+  @@index([category, isActive])
+}
+
+model UserPermissionTag {
+  id              String    @id @default(uuid()) @db.Uuid
+  userProfileId   String    @db.Uuid
+  permissionTagId String    @db.Uuid
+  grantedById     String?   @db.Uuid
+  grantedAt       DateTime  @default(now())
+  revokedById     String?   @db.Uuid
+  revokedAt       DateTime?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  userProfile   UserProfile   @relation("UserPermissionTags", fields: [userProfileId], references: [id], onDelete: Cascade)
+  permissionTag PermissionTag @relation(fields: [permissionTagId], references: [id], onDelete: Cascade)
+  grantedBy     UserProfile?  @relation("PermissionGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+  revokedBy     UserProfile?  @relation("PermissionRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@unique([userProfileId, permissionTagId])
+  @@index([permissionTagId, isActive])
+  @@index([grantedById])
+  @@index([revokedById])
+}
+
+// ---------------------------------------------------------------------------
+// Rooms
+// ---------------------------------------------------------------------------
+
+model RoomType {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @unique
+  description  String?
+  baseCapacity Int
+  maxCapacity  Int
+  basePrice    Decimal  @db.Decimal(10, 2)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  rooms Room[]
+}
+
+model Room {
+  id         String     @id @default(uuid()) @db.Uuid
+  name       String
+  number     String     @unique
+  roomTypeId String     @db.Uuid
+  status     RoomStatus @default(AVAILABLE)
+  notes      String?
+  isActive   Boolean    @default(true)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  roomType     RoomType      @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  reservations Reservation[]
+
+  @@index([roomTypeId])
+}
+
+// ---------------------------------------------------------------------------
+// Guests + reservations
+// ---------------------------------------------------------------------------
+
+model Guest {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  phone     String?
+  document  String?
+  email     String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reservations Reservation[]
+
+  @@index([isActive])
+}
+
+model Reservation {
+  id             String            @id @default(uuid()) @db.Uuid
+  guestId        String            @db.Uuid
+  roomId         String            @db.Uuid
+  checkInDate    DateTime          @db.Date
+  checkOutDate   DateTime          @db.Date
+  adults         Int               @default(1)
+  children       Int               @default(0)
+  dailyRate      Decimal           @db.Decimal(10, 2)
+  discountAmount Decimal           @default(0) @db.Decimal(10, 2)
+  status         ReservationStatus @default(PRE_RESERVED)
+  notes          String?
+  createdById    String?           @db.Uuid
+  idempotencyKey String?           @unique @db.Uuid
+  origin         String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  guest        Guest                    @relation(fields: [guestId], references: [id], onDelete: Restrict)
+  room         Room                     @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  createdBy    UserProfile?             @relation("ReservationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  movements    StockMovement[]
+  consumptions ReservationConsumption[]
+  closing      FinancialClosing?
+
+  @@index([roomId, checkInDate, checkOutDate])
+  @@index([guestId])
+  @@index([createdById])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Products + stock
+// ---------------------------------------------------------------------------
+
+model ProductCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products Product[]
+}
+
+model Product {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  categoryId   String   @db.Uuid
+  unit         Unit     @default(UNIT)
+  averageCost  Decimal  @default(0) @db.Decimal(10, 2)
+  salePrice    Decimal? @db.Decimal(10, 2)
+  currentStock Decimal  @default(0) @db.Decimal(12, 3)
+  minimumStock Decimal  @default(0) @db.Decimal(12, 3)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  category     ProductCategory          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  movements    StockMovement[]
+  consumptions ReservationConsumption[]
+
+  @@index([categoryId, isActive])
+}
+
+model StockMovement {
+  id             String       @id @default(uuid()) @db.Uuid
+  productId      String       @db.Uuid
+  reservationId  String?      @db.Uuid
+  type           MovementType
+  quantity       Decimal      @db.Decimal(12, 3)
+  estimatedCost  Decimal      @default(0) @db.Decimal(10, 2)
+  reason         String?
+  createdById    String?      @db.Uuid
+  idempotencyKey String?      @unique @db.Uuid
+  origin         String?
+  createdAt      DateTime     @default(now())
+
+  product     Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
+  reservation Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  createdBy   UserProfile? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([productId, createdAt])
+  @@index([reservationId])
+  @@index([createdById])
+  @@index([type, createdAt])
+}
+
+model ReservationConsumption {
+  id             String   @id @default(uuid()) @db.Uuid
+  reservationId  String   @db.Uuid
+  productId      String?  @db.Uuid
+  description    String
+  quantity       Decimal  @db.Decimal(12, 3)
+  unitPrice      Decimal  @db.Decimal(10, 2)
+  totalPrice     Decimal  @db.Decimal(10, 2)
+  createdById    String?  @db.Uuid
+  idempotencyKey String?  @unique @db.Uuid
+  origin         String?
+  createdAt      DateTime @default(now())
+
+  reservation Reservation  @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  createdBy   UserProfile? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([reservationId])
+  @@index([productId])
+  @@index([createdById])
+}
+
+// ---------------------------------------------------------------------------
+// Financial closing
+// ---------------------------------------------------------------------------
+
+model FinancialClosing {
+  id               String         @id @default(uuid()) @db.Uuid
+  reservationId    String         @unique @db.Uuid
+  dailyTotal       Decimal        @default(0) @db.Decimal(10, 2)
+  consumptionTotal Decimal        @default(0) @db.Decimal(10, 2)
+  discountTotal    Decimal        @default(0) @db.Decimal(10, 2)
+  extraTotal       Decimal        @default(0) @db.Decimal(10, 2)
+  discountJustification String?
+  extraJustification    String?
+  finalTotal       Decimal        @default(0) @db.Decimal(10, 2)
+  paymentStatus    PaymentStatus  @default(PENDING)
+  paymentMethod    PaymentMethod?
+  closedById       String?        @db.Uuid
+  closedAt         DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  reservation Reservation  @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  closedBy    UserProfile? @relation(fields: [closedById], references: [id], onDelete: SetNull)
+
+  @@index([paymentStatus])
+  @@index([closedById])
+}
+
+// ---------------------------------------------------------------------------
+// Audit log (write-only, append)
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  action     String
+  entity     String
+  entityId   String?
+  beforeData Json?
+  afterData  Json?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  actor UserProfile? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([actorId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Sync / offline (Sprint 7)
+// ---------------------------------------------------------------------------
+
+// Records every attempt to apply a client-side queued operation, including
+// rejections (CONFLICT/FAILED). The `idempotencyKey` UNIQUE constraint makes
+// retries safe — a second POST with the same key resolves to ALREADY_APPLIED.
+model SyncedOperation {
+  id             String   @id @default(uuid()) @db.Uuid
+  idempotencyKey String   @unique @db.Uuid
+  operationType  String
+  entity         String
+  entityId       String?  @db.Uuid
+  actorId        String?  @db.Uuid
+  result         String
+  errorMessage   String?
+  payload        Json
+  createdAt      DateTime @default(now())
+
+  actor UserProfile? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([result, createdAt])
+}

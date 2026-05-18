@@ -1,0 +1,22 @@
+{
+  "threshold": 3,
+  "reporters": ["json"],
+  "output": "reports/duplication",
+  "format": ["typescript", "tsx", "javascript", "jsx"],
+  "minLines": 8,
+  "minTokens": 80,
+  "ignore": [
+    "node_modules/**",
+    ".next/**",
+    "coverage/**",
+    "dist/**",
+    "build/**",
+    "reports/**",
+    ".claude/**",
+    ".agents/**",
+    ".github/**",
+    "components/ui/**",
+    "scripts/quality/**",
+    "**/*.d.ts"
+  ]
+}

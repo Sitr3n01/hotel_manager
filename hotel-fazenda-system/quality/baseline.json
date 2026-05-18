@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-17T17:45:47.220Z",
+  "source": "quality:baseline from branch main",
+  "coverage": {
+    "lines": 4.1,
+    "statements": 4.11,
+    "functions": 4.66,
+    "branches": 2.01
+  },
+  "audit": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "duplication": {
+    "percentage": 0,
+    "fragments": 0,
+    "duplicatedLines": 0
+  },
+  "eslint": {
+    "errors": 0,
+    "warnings": 0,
+    "ruleViolations": {}
+  },
+  "files": {
+    "oversizedFiles": [],
+    "maxLines": 470,
+    "fileLineCounts": {
+      "app/(auth)/login/page.tsx": 124,
+      "app/(protected)/configuracoes/page.tsx": 107,
+      "app/(protected)/cozinha/page.tsx": 12,
+      "app/(protected)/dashboard/page.tsx": 194,
+      "app/(protected)/estoque/page.tsx": 12,
+      "app/(protected)/financeiro/page.tsx": 12,
+      "app/(protected)/hospedes/page.tsx": 12,
+      "app/(protected)/layout.tsx": 13,
+      "app/(protected)/quartos/page.tsx": 27,
+      "app/(protected)/relatorios/page.tsx": 12,
+      "app/(protected)/reservas/page.tsx": 12,
+      "app/api/health/route.ts": 8,
+      "app/layout.tsx": 39,
+      "app/page.tsx": 7,
+      "components/layout/app-header.tsx": 97,
+      "components/layout/app-sidebar.tsx": 81,
+      "components/layout/protected-shell.tsx": 22,
+      "components/quartos/quartos-page-client.tsx": 50,
+      "components/quartos/room-dialog-parts.tsx": 54,
+      "components/quartos/room-form-dialog.tsx": 208,
+      "components/quartos/room-list-parts.tsx": 42,
+      "components/quartos/room-status-badge.tsx": 44,
+      "components/quartos/room-summary-cards.tsx": 58,
+      "components/quartos/room-type-form-dialog.tsx": 164,
+      "components/quartos/room-types-tab.tsx": 264,
+      "components/quartos/rooms-tab.tsx": 470,
+      "components/shared/module-placeholder.tsx": 50,
+      "components/shared/text-field.tsx": 51,
+      "lib/actions/room-type.ts": 155,
+      "lib/actions/room.ts": 243,
+      "lib/audit.ts": 31,
+      "lib/auth/get-current-user.ts": 22,
+      "lib/auth/require-auth.ts": 11,
+      "lib/permissions.ts": 26,
+      "lib/prisma.ts": 16,
+      "lib/room-status.ts": 32,
+      "lib/supabase/client.ts": 9,
+      "lib/supabase/middleware.ts": 57,
+      "lib/supabase/server.ts": 28,
+      "lib/utils.ts": 7,
+      "lib/validations/login.ts": 9,
+      "lib/validations/room-type.ts": 43,
+      "lib/validations/room.ts": 32,
+      "prisma/seed.ts": 209,
+      "proxy.ts": 19,
+      "tests/lib/room-status.test.ts": 28,
+      "tests/lib/validations/room-type.test.ts": 116,
+      "tests/lib/validations/room.test.ts": 133,
+      "tests/setup.ts": 2,
+      "tests/smoke/login-validation.test.ts": 23,
+      "tests/smoke/utils.test.ts": 17
+    }
+  },
+  "complexity": {
+    "maxDepthViolations": 3,
+    "complexityViolations": 17,
+    "longFunctionViolations": 0
+  }
+}
