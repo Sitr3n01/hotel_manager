@@ -37,6 +37,17 @@ jobs:
           cache: npm
           cache-dependency-path: hotel-fazenda-system/package-lock.json
 
+      # npm 10.x (bundled with Node 22) tem bug na validacao de lockfiles
+      # com bundleDependencies de optional WASM bindings (ex: @emnapi/* via
+      # @rolldown/binding-wasm32-wasi). npm 11.6+ corrige. O packageManager
+      # field em package.json sozinho nao basta porque setup-node@v4 nao
+      # aciona Corepack automaticamente.
+      - name: Activate pinned npm via Corepack
+        run: |
+          corepack enable
+          corepack prepare npm@11.6.2 --activate
+          npm --version
+
       - name: Install dependencies deterministically
         run: npm ci --no-audit --no-fund
 
