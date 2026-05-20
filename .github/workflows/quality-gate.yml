@@ -37,6 +37,16 @@ jobs:
           cache: npm
           cache-dependency-path: hotel-fazenda-system/package-lock.json
 
+      # npm 10.x (bundled with Node 22) tem bug na validacao de lockfiles
+      # com bundleDependencies de optional WASM bindings (ex: @emnapi/* via
+      # @rolldown/binding-wasm32-wasi). npm 11.6+ corrige. Corepack nao
+      # consegue ativar o shim no PATH em bash nao-interativo do GHA, entao
+      # forcamos via install global.
+      - name: Upgrade npm to 11.6.2
+        run: |
+          npm install -g npm@11.6.2
+          npm --version
+
       - name: Install dependencies deterministically
         run: npm ci --no-audit --no-fund
 

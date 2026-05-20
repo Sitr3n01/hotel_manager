@@ -11,6 +11,21 @@ import {
   type LoginInput,
 } from "@/lib/validations/auth";
 import type { Role, UserProfile } from "@prisma/client";
+import { headers } from "next/headers";
+import { rateLimit } from "@/lib/rate-limit";
+
+async function getClientIp(): Promise<string> {
+  try {
+    const headersList = await headers();
+    const xForwardedFor = headersList.get("x-forwarded-for");
+    if (xForwardedFor) {
+      return xForwardedFor.split(",")[0]?.trim() ?? "127.0.0.1";
+    }
+  } catch {
+    // Ignore
+  }
+  return "127.0.0.1";
+}
 
 type ActionResult<T> =
   | { success: true; data: T }
@@ -20,6 +35,15 @@ export async function login(
   input: LoginInput,
   redirectTo = "/dashboard",
 ): Promise<ActionResult<{ redirectTo: string }>> {
+  const ip = await getClientIp();
+  const rateLimitKey = `login:${ip}`;
+  if (!rateLimit(rateLimitKey, 5, 0.1)) {
+    return {
+      success: false,
+      error: "Muitas tentativas de login. Por favor, tente novamente mais tarde.",
+    };
+  }
+
   const parsed = loginSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -69,6 +93,15 @@ export async function logout(): Promise<ActionResult<{ redirectTo: string }>> {
 export async function requestAccess(
   input: AccessRequestInput,
 ): Promise<ActionResult<{ redirectTo: string }>> {
+  const ip = await getClientIp();
+  const rateLimitKey = `requestAccess:${ip}`;
+  if (!rateLimit(rateLimitKey, 3, 0.017)) {
+    return {
+      success: false,
+      error: "Muitas solicitações de acesso. Por favor, tente novamente mais tarde.",
+    };
+  }
+
   const parsed = accessRequestSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -171,7 +204,7 @@ function resolveExistingAccessRequest(
   profile: Pick<UserProfile, "status" | "isActive"> | null,
 ): ActionResult<{ redirectTo: string }> | null {
   if (profile?.status === "APPROVED" && profile.isActive) {
-    return { success: false, error: "Já existe uma conta ativa para este e-mail." };
+    return { success: true, data: { redirectTo: "/aguardando-aprovacao" } };
   }
   if (profile?.status === "PENDING") {
     return { success: true, data: { redirectTo: "/aguardando-aprovacao" } };
@@ -189,7 +222,15 @@ async function resolveAccessAuthUserId(
   try {
     const admin = createAdminClient();
     return await createAuthUser(admin, data.name, email, data.password);
-  } catch {
+  } catch (error) {
+    await logAudit({
+      action: "ACCESS_REQUEST_CREATE_FAILED",
+      entity: "UserProfile",
+      entityId: email,
+      metadata: {
+        reason: error instanceof Error ? error.message : "unknown",
+      },
+    });
     return null;
   }
 }
@@ -227,7 +268,11 @@ function normalizeOptional(value?: string | null): string | null {
 }
 
 function normalizeRedirect(value: string): string {
-  if (!value.startsWith("/") || value.startsWith("//")) return "/dashboard";
+  // Must be an internal path that starts with a single forward slash followed
+  // by a non-slash, non-backslash character. Rejects protocol-relative URLs
+  // (//evil.com), backslash-prefixed paths some parsers treat as protocol
+  // separators (/\evil.com), javascript: and data: URIs, and empty values.
+  if (!/^\/[^/\\]/.test(value)) return "/dashboard";
   if (value.startsWith("/login") || value.startsWith("/solicitar-acesso")) return "/dashboard";
   return value;
 }

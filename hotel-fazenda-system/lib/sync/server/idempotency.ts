@@ -5,10 +5,52 @@ import { Prisma, type SyncedOperation, type UserProfile } from "@prisma/client";
 import type { SyncOperation } from "@/lib/validations/sync-operation";
 import type { SyncEntity, SyncResult, SyncResultStatus } from "./types";
 
+// Scoped by actor: a SyncedOperation row is only returned to its original
+// actor. The idempotencyKey is globally @unique in the schema, so two distinct
+// actors can never both have a row for the same key — but if user A owns the
+// key, lookups by user B return null here. Use hasForeignOperation() to detect
+// the foreign-collision case without leaking A's entityId.
 export async function findExistingOperation(
   idempotencyKey: string,
+  actorId: string,
 ): Promise<SyncedOperation | null> {
-  return prisma.syncedOperation.findUnique({ where: { idempotencyKey } });
+  return prisma.syncedOperation.findFirst({
+    where: { idempotencyKey, actorId },
+  });
+}
+
+export async function hasForeignOperation(
+  idempotencyKey: string,
+  actorId: string,
+): Promise<boolean> {
+  const row = await prisma.syncedOperation.findFirst({
+    where: { idempotencyKey, NOT: { actorId } },
+    select: { id: true },
+  });
+  return row !== null;
+}
+
+export function foreignKeyConflictResult(idempotencyKey: string): SyncResult {
+  return {
+    status: "CONFLICT",
+    idempotencyKey,
+    reason: "Chave de idempotência em conflito",
+  };
+}
+
+// Returns a final SyncResult when the idempotencyKey is already accounted for
+// (own actor — replay it; foreign actor — generic conflict). Returns null when
+// the caller should proceed to actually run the operation.
+export async function resolveIdempotencyState(
+  idempotencyKey: string,
+  actorId: string,
+): Promise<SyncResult | null> {
+  const existing = await findExistingOperation(idempotencyKey, actorId);
+  if (existing) return mapExistingToResult(existing);
+  if (await hasForeignOperation(idempotencyKey, actorId)) {
+    return foreignKeyConflictResult(idempotencyKey);
+  }
+  return null;
 }
 
 export function mapExistingToResult(existing: SyncedOperation): SyncResult {
@@ -48,8 +90,9 @@ export async function recordSyncRejection(args: {
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const existing = await findExistingOperation(args.op.idempotencyKey);
+      const existing = await findExistingOperation(args.op.idempotencyKey, args.user.id);
       if (existing) return mapExistingToResult(existing);
+      return foreignKeyConflictResult(args.op.idempotencyKey);
     }
     throw error;
   }

@@ -54,7 +54,10 @@ type AuditAction =
   | "PERMISSION_GRANT"
   | "PERMISSION_REVOKE"
   | "PRESET_APPLY"
-  | "ACCESS_DENIED";
+  | "ACCESS_DENIED"
+  | "ACCESS_REQUEST_CREATE_FAILED"
+  | "EXPORT_DENIED"
+  | "EXPORT_NOT_FOUND";
 
 type LogAuditParams = {
   actorId?: string | null;
