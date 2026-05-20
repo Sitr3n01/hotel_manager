@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { rateLimit } from "@/lib/rate-limit";
+import { _bucketsSize, _resetBuckets, rateLimit } from "@/lib/rate-limit";
 
 describe("rateLimit", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    _resetBuckets();
   });
 
   afterEach(() => {
@@ -56,5 +57,23 @@ describe("rateLimit", () => {
     expect(rateLimit(keyA, 1, 1)).toBe(false); // Esgotado para A
 
     expect(rateLimit(keyB, 1, 1)).toBe(true); // Ainda permitido para B
+  });
+
+  it("evicta buckets stale lazy quando o Map ultrapassa 10k entries", () => {
+    // Popular 10001 buckets com TTL curto (refill 1/s, limit 1 -> TTL = 2s)
+    for (let i = 0; i < 10_001; i += 1) {
+      rateLimit(`stale-${i}`, 1, 1);
+    }
+    expect(_bucketsSize()).toBe(10_001);
+
+    // Avancar tempo alem do TTL de todos os buckets criados
+    vi.advanceTimersByTime(5_000);
+
+    // Proxima chamada (acima do threshold) dispara sweep e remove os
+    // buckets expirados antes de criar o novo.
+    rateLimit("trigger-sweep", 1, 1);
+
+    // Sobrou apenas o novo bucket; os 10001 anteriores foram evictados.
+    expect(_bucketsSize()).toBe(1);
   });
 });
