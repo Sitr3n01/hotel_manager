@@ -92,10 +92,10 @@ A baseline está em condições aceitáveis para alpha público interno (1 fazen
   - `login`: 5 surtos por IP, refill 1 token / 10s
   - `requestAccess`: 3 surtos por IP, refill 1 token / 60s
   - `/api/export/fechamento/[id]`: 3 surtos por IP, refill 1 token / 20s (com `EXPORT_DENIED` em auditoria via 429)
-- **Limitações conhecidas** (a endurecer em PR-C dedicado):
-  - **IP spoofing**: `x-forwarded-for` é aceito sem trust-proxy check; um atacante pode rotacionar o header. Mitigar usando `x-vercel-forwarded-for` / `cf-connecting-ip` conforme deploy.
-  - **Memory leak**: o `Map` de buckets não tem TTL/eviction.
-  - **Multi-instância**: in-memory é por processo; em serverless cada lambda tem seu Map. Migrar para Upstash/Vercel KV antes de escalar.
+- **Endurecimentos aplicados em PR-C** ([lib/request-ip.ts](../lib/request-ip.ts), [lib/rate-limit.ts](../lib/rate-limit.ts)):
+  - **IP confiável**: novo helper `getRequestIp()` prioriza `x-vercel-forwarded-for` → `cf-connecting-ip` → primeiro segmento de `x-forwarded-for` → `x-real-ip` → `unknown`. Premissa de trust-proxy documentada inline.
+  - **Memory leak mitigado**: buckets agora têm `expiresAt` (2× tempo de refill completo); sweep lazy quando `buckets.size > 10_000`.
+- **Limitação remanescente — multi-instância**: in-memory é por processo. Em deploy serverless (Vercel) ou horizontal scale, cada instância tem seu Map; o limite efetivo é `N × limite`. Migrar para Upstash/Vercel KV antes de escalar além de single-server.
 
 ### Low
 
@@ -144,7 +144,8 @@ A baseline está em condições aceitáveis para alpha público interno (1 fazen
 | ID | Prioridade | Ação |
 |----|-----------|------|
 | F-2 | P0 | Rotacionar `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_PASSWORD`, senha do Postgres |
-| F-11+ | P1 | Endurecer rate limiter: trust-proxy (Vercel/CF headers), eviction lazy de buckets stale, separar `/api/sync/batch` |
+| F-11.batch | P1 | Adicionar rate limit a `/api/sync/batch` (PR-C cobriu login/requestAccess/export) |
+| F-11.kv | P1 | Migrar rate limiter para Upstash/Vercel KV quando deploy >1 instância |
 | RLS-exec | P1 | Executar `prisma/manual/03_rls_policies.sql` em Supabase staging → validar com smoke por role → promover para prod |
 | F-9 | P2 | CSP com nonces — remover `unsafe-inline`/`unsafe-eval` quando Next permitir |
 | F-10 | P3 | Monitorar `npm audit` para patch transitivo do postcss via Next |

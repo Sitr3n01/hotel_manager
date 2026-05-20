@@ -4,8 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
 import { hasPermission } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
-import { headers } from "next/headers";
 import { rateLimit } from "@/lib/rate-limit";
+import { getRequestIp } from "@/lib/request-ip";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -23,9 +23,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return new Response("Forbidden", { status: 403 });
   }
 
-  const headersList = await headers();
-  const xForwardedFor = headersList.get("x-forwarded-for");
-  const ip = xForwardedFor ? xForwardedFor.split(",")[0]?.trim() : "127.0.0.1";
+  const ip = await getRequestIp();
 
   if (!rateLimit(`export:${ip}`, 3, 0.05)) {
     await logAudit({

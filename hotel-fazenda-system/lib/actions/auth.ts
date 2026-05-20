@@ -11,21 +11,8 @@ import {
   type LoginInput,
 } from "@/lib/validations/auth";
 import type { Role, UserProfile } from "@prisma/client";
-import { headers } from "next/headers";
 import { rateLimit } from "@/lib/rate-limit";
-
-async function getClientIp(): Promise<string> {
-  try {
-    const headersList = await headers();
-    const xForwardedFor = headersList.get("x-forwarded-for");
-    if (xForwardedFor) {
-      return xForwardedFor.split(",")[0]?.trim() ?? "127.0.0.1";
-    }
-  } catch {
-    // Ignore
-  }
-  return "127.0.0.1";
-}
+import { getRequestIp } from "@/lib/request-ip";
 
 type ActionResult<T> =
   | { success: true; data: T }
@@ -35,7 +22,7 @@ export async function login(
   input: LoginInput,
   redirectTo = "/dashboard",
 ): Promise<ActionResult<{ redirectTo: string }>> {
-  const ip = await getClientIp();
+  const ip = await getRequestIp();
   const rateLimitKey = `login:${ip}`;
   if (!rateLimit(rateLimitKey, 5, 0.1)) {
     return {
@@ -93,7 +80,7 @@ export async function logout(): Promise<ActionResult<{ redirectTo: string }>> {
 export async function requestAccess(
   input: AccessRequestInput,
 ): Promise<ActionResult<{ redirectTo: string }>> {
-  const ip = await getClientIp();
+  const ip = await getRequestIp();
   const rateLimitKey = `requestAccess:${ip}`;
   if (!rateLimit(rateLimitKey, 3, 0.017)) {
     return {
