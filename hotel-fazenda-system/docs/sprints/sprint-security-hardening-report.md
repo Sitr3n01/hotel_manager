@@ -108,6 +108,34 @@ Em revisão pós-sprint identificamos que o `03_rls_policies.sql` original refer
 
 **Validação estática**: script Node cruzando `has_permission('...')` do SQL contra `tag("...")` do TS confirmou 43/43 keys válidas, zero discrepâncias.
 
-**Status do runbook**: ainda não executado em nenhum Postgres (script vive em `prisma/manual/` e exige execução manual). Próximo passo: aplicar em Supabase staging via branch + smoke test por role do `PERMISSION_PRESETS`.
+**Status do runbook**: aplicado no projeto Supabase `sqntohariaepeagollzw` em 2026-05-20 via `mcp__supabase__apply_migration` (migrations `rls_policies_initial` + 2 hardening). 32 policies ativas em 14 tabelas; dados existentes intactos (1 UserProfile, 61 PermissionTags, 61 grants, 11 Rooms, 15 AuditLogs).
 
 **Lição aprendida**: o Quality Gate é necessário mas não suficiente — SQL não é cross-validado contra o registro de permissões TS. Hook futuro: pre-commit que valide `has_permission('...')` ↔ `PERMISSION_TAGS`.
+
+### Hardening descoberto durante aplicação (seção 14 do SQL)
+
+Ao aplicar o runbook, o advisor de segurança Supabase flagrou que as helper functions `current_user_profile_id()` e `has_permission(text)` ficavam expostas via `/rest/v1/rpc/*` para `anon` e `authenticated` por serem `SECURITY DEFINER`.
+
+Análise do risco:
+
+- **anon**: `auth.uid()` é `null` → funções retornam `null`/`false`. Zero leak, mas superfície desnecessária.
+- **authenticated**: retorna apenas escopo próprio (próprio profile id; próprias permissions). Sem leak — informação já disponível pelas tabelas via RLS.
+
+**Hardening aplicado** (seção 14 adicionada ao `03_rls_policies.sql`):
+
+```sql
+REVOKE EXECUTE ON FUNCTION public.current_user_profile_id() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.has_permission(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.current_user_profile_id() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.has_permission(text) TO authenticated, service_role;
+```
+
+Detalhe importante: `REVOKE FROM PUBLIC` por si só não remove os grants explícitos que Supabase atribui automaticamente — `anon` precisa ser revogado nominalmente. `authenticated` mantém EXECUTE porque é o role que as policies usam para chamar as funções.
+
+**Diferença em relação ao padrão `20260517163732_revoke_internal_security_definer_execute`**: aquele migration revoga de `public, anon, authenticated` para `handle_new_auth_user` e `rls_auto_enable` porque essas funções rodam em contexto de trigger (onde EXECUTE do role não é checado). Nossas funções são chamadas dentro de policies como `authenticated`, então revogá-las desse role quebraria todas as verificações de permissão.
+
+**Advisors remanescentes** (todos aceitáveis):
+
+- `_prisma_migrations` RLS sem policy — intencional, tabela interna do Prisma não deve ser REST-accessível
+- `authenticated_security_definer_function_executable` em ambas as helpers — aceito (sem leak material)
+- `auth_leaked_password_protection` — pré-existente, ativar no dashboard Supabase

@@ -373,3 +373,29 @@ CREATE POLICY "audit_log_insert_approved" ON public."AuditLog"
 
 -- UPDATE e DELETE intencionalmente sem policy: sem policy = nada passa,
 -- garantindo imutabilidade forense do histórico para fins de conformidade.
+
+-- ---------------------------------------------------------------------------
+-- 14. Reduzir superfície de ataque: revogar EXECUTE do anon nas helper
+--     functions de RLS
+-- ---------------------------------------------------------------------------
+-- Supabase concede EXECUTE automaticamente para anon/authenticated em
+-- funções do schema public. Para as helpers de RLS:
+--
+--   - anon não tem `auth.uid()` válido → has_permission()/current_user_profile_id()
+--     retornariam null/false. O leak é zero, mas a superfície via
+--     /rest/v1/rpc/* é desnecessária; revogamos para reduzi-la.
+--   - authenticated PRECISA manter EXECUTE — RLS policies abaixo chamam
+--     essas funções como o role da query, e revogá-las quebraria toda
+--     verificação de permissão.
+--   - service_role mantém EXECUTE (usado por Prisma quando aplicável).
+--
+-- IMPORTANTE: REVOKE ... FROM PUBLIC não basta — Supabase atribui grants
+-- diretos a anon/authenticated que precisam ser revogados nominalmente.
+
+REVOKE EXECUTE ON FUNCTION public.current_user_profile_id() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.has_permission(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.current_user_profile_id() FROM anon;
+REVOKE EXECUTE ON FUNCTION public.has_permission(text) FROM anon;
+
+GRANT EXECUTE ON FUNCTION public.current_user_profile_id() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.has_permission(text) TO authenticated, service_role;
