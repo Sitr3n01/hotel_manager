@@ -1,7 +1,12 @@
 import "server-only";
 import type { UserProfile } from "@prisma/client";
 import { ConflictError } from "./errors";
-import { findExistingOperation, mapExistingToResult, recordSyncRejection } from "./idempotency";
+import {
+  findExistingOperation,
+  mapExistingToResult,
+  recordSyncRejection,
+  resolveIdempotencyState,
+} from "./idempotency";
 import type { SyncResult, SyncEntity } from "./types";
 import type { SyncOperation } from "@/lib/validations/sync-operation";
 import { handleWaste } from "./handlers/waste";
@@ -22,8 +27,8 @@ export async function dispatchOperation(
   op: SyncOperation,
   user: UserProfile,
 ): Promise<SyncResult> {
-  const existing = await findExistingOperation(op.idempotencyKey);
-  if (existing) return mapExistingToResult(existing);
+  const idempotencyState = await resolveIdempotencyState(op.idempotencyKey, user.id);
+  if (idempotencyState) return idempotencyState;
 
   try {
     switch (op.operationType) {
@@ -53,7 +58,7 @@ export async function dispatchOperation(
 }
 
 async function recordAfterFinalIdempotencyCheck(args: Parameters<typeof recordSyncRejection>[0]) {
-  const existing = await findExistingOperation(args.op.idempotencyKey);
+  const existing = await findExistingOperation(args.op.idempotencyKey, args.user.id);
   if (existing) return mapExistingToResult(existing);
   return recordSyncRejection(args);
 }

@@ -1,17 +1,43 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
 import { hasPermission } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
+import { headers } from "next/headers";
+import { rateLimit } from "@/lib/rate-limit";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const user = await getCurrentUser();
   if (!user || !hasPermission(user, "FINANCIAL_EXPORT_EXCEL")) {
+    if (user) {
+      await logAudit({
+        actorId: user.id,
+        action: "EXPORT_DENIED",
+        entity: "FinancialClosing",
+        entityId: id,
+        metadata: { format: "xlsx", reason: "missing_permission" },
+      });
+    }
     return new Response("Forbidden", { status: 403 });
   }
 
-  const { id } = await params;
+  const headersList = await headers();
+  const xForwardedFor = headersList.get("x-forwarded-for");
+  const ip = xForwardedFor ? xForwardedFor.split(",")[0]?.trim() : "127.0.0.1";
+
+  if (!rateLimit(`export:${ip}`, 3, 0.05)) {
+    await logAudit({
+      actorId: user.id,
+      action: "EXPORT_DENIED",
+      entity: "FinancialClosing",
+      entityId: id,
+      metadata: { format: "xlsx", reason: "rate_limit_exceeded" },
+    });
+    return new Response("Too Many Requests", { status: 429 });
+  }
+
   const closing = await prisma.financialClosing.findUnique({
     where: { id },
     include: {
@@ -25,9 +51,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       closedBy: true,
     },
   });
-  if (!closing) return new Response("Not found", { status: 404 });
+  if (!closing) {
+    await logAudit({
+      actorId: user.id,
+      action: "EXPORT_NOT_FOUND",
+      entity: "FinancialClosing",
+      entityId: id,
+      metadata: { format: "xlsx" },
+    });
+    return new Response("Not found", { status: 404 });
+  }
 
-  const buffer = buildWorkbook(closing);
+  const buffer = await buildWorkbook(closing);
   await logAudit({
     actorId: user.id,
     action: "EXPORT",
@@ -62,7 +97,10 @@ type ExportClosing = Prisma.FinancialClosingGetPayload<{
   };
 }>;
 
-function buildWorkbook(closing: ExportClosing): Buffer {
+async function buildWorkbook(closing: ExportClosing): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+
+  const sheetFechamento = workbook.addWorksheet("Fechamento");
   const rows = [
     ["Hóspede", closing.reservation.guest.name],
     ["Quarto", `${closing.reservation.room.number} - ${closing.reservation.room.name}`],
@@ -77,6 +115,10 @@ function buildWorkbook(closing: ExportClosing): Buffer {
     ["Método pagamento", closing.paymentMethod ?? "Não definido"],
     ["Responsável", closing.closedBy?.name ?? "Não fechado"],
   ];
+  sheetFechamento.addRows(rows);
+
+  const sheetConsumos = workbook.addWorksheet("Consumos");
+  const consumptionHeaders = ["Produto", "Descrição", "Quantidade", "Preço unitário", "Total", "Data"];
   const consumptionRows = closing.reservation.consumptions.map((item) => [
     item.product?.name ?? "Produto removido",
     item.description,
@@ -85,18 +127,11 @@ function buildWorkbook(closing: ExportClosing): Buffer {
     item.totalPrice.toNumber(),
     formatDate(item.createdAt),
   ]);
+  sheetConsumos.addRow(consumptionHeaders);
+  sheetConsumos.addRows(consumptionRows);
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "Fechamento");
-  XLSX.utils.book_append_sheet(
-    wb,
-    XLSX.utils.aoa_to_sheet([
-      ["Produto", "Descrição", "Quantidade", "Preço unitário", "Total", "Data"],
-      ...consumptionRows,
-    ]),
-    "Consumos",
-  );
-  return XLSX.write(wb, { bookType: "xlsx", type: "buffer" }) as Buffer;
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
 }
 
 function formatDate(value: Date): string {

@@ -34,18 +34,24 @@ export async function requireAdmin(): Promise<CurrentUser> {
   return requireAnyPermission(["ACCESS_USERS_ADMIN", "USERS_READ", "USERS_UPDATE_TAGS"]);
 }
 
-export function assertPermission(user: CurrentUser, permission: PermissionKey, message?: string): void {
+export async function assertPermission(
+  user: CurrentUser,
+  permission: PermissionKey,
+  message?: string,
+): Promise<void> {
   if (!hasPermission(user, permission)) {
+    await logDeniedAccess(user, [permission]);
     throw new AuthorizationError(message);
   }
 }
 
-export function assertAnyPermission(
+export async function assertAnyPermission(
   user: CurrentUser,
   permissions: readonly PermissionKey[],
   message?: string,
-): void {
+): Promise<void> {
   if (!hasAnyPermission(user, permissions)) {
+    await logDeniedAccess(user, permissions);
     throw new AuthorizationError(message);
   }
 }
